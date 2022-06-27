@@ -1,4 +1,4 @@
-package main
+package Author
 
 import (
 	"bytes"
@@ -16,14 +16,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-type Book struct {
-	BookId        int    `json:"bookId"`
-	Title         string `json:"title"`
-	Author        Author `json:"author"`
-	Publication   string `json:"publication"`
-	PublishedDate string `json:"publishedDate"`
-}
-
 type Author struct {
 	AuthorId  int    `json:"authorId"`
 	FirstName string `json:"firstName"`
@@ -32,11 +24,20 @@ type Author struct {
 	PenName   string `json:"penName"`
 }
 
+type Book struct {
+	BookId        string  `json:"bookId"`
+	AuthorId      int     `json:"authorId"`
+	Title         string  `json:"title"`
+	Publication   string  `json:"publication"`
+	PublishedDate string  `json:"publishedDate"`
+	Author        *Author `json:"author"`
+}
+
 var db *sql.DB
 
-func connectDb() *sql.DB {
+func ConnectDb() *sql.DB {
 
-	db, err := sql.Open("mysql", "root:7071686616@/Info")
+	db, err := sql.Open("mysql", "root:7071686616@/Project1")
 	if err != nil {
 		log.Fatal("error in opening db")
 	}
@@ -46,231 +47,282 @@ func connectDb() *sql.DB {
 	fmt.Println("connected")
 	return db
 }
-func main() {
 
-	r := mux.NewRouter()
-	r.HandleFunc("/book", GetAllBook)
-	//r.HandleFunc("/book/", GetBookById)
-	//r.HandleFunc("http://localhost:8000/book", PostBook)
-	//r.HandleFunc("http://localhost:8000/author", PostAuthor)
+// FetchingAllBooks : fetches all books from the database
+func FetchAllBooks() []Book {
+	Db := ConnectDb()
+	defer Db.Close()
 
-	if err := http.ListenAndServe(":8000", r); err != nil {
-		log.Fatal(err)
-	}
+	Rows, err := Db.Query("SELECT * FROM book")
 
-}
-
-func PostAuthor(w http.ResponseWriter, req *http.Request) {
-
-	db = connectDb()
-	var author *Author
-	body, err := io.ReadAll(req.Body)
 	if err != nil {
-		log.Print(err)
-		return
+		fmt.Errorf("%v\n", err)
 	}
+	defer Rows.Close()
 
-	err = json.Unmarshal(body, &author)
-	if err != nil {
-		log.Print(err)
-		return
-	}
+	var bk []Book
 
-	if author.FirstName == "" || author.LastName == "" || author.PenName == "" {
-		log.Print("mention the name")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if len(author.Dob) < 10 || len(author.Dob) > 10 {
-		log.Print("invalid format")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	res, err := db.Query("SELECT author_id from author WHERE first_name=? AND last_name=? AND dob=? AND pen_name=?", author.FirstName, author.LastName, author.Dob, author.PenName)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if !res.Next() || err != nil {
-		_, err = db.Exec("INSERT INTO author (first_name,last_name,dob,pen_name) VALUES (?,?,?,?)", author.FirstName, author.LastName, author.Dob, author.PenName)
+	for Rows.Next() {
+		var b Book
+		err := Rows.Scan(&b.BookId, &b.AuthorId, &b.Title, &b.Publication, &b.PublishedDate)
 		if err != nil {
-			log.Print(err)
-			return
+			fmt.Errorf("%v\n", err)
 		}
-		w.WriteHeader(http.StatusCreated)
+
+		_, author := FetchAuthor(b.AuthorId)
+		b.Author = &author
+		bk = append(bk, b)
 	}
-	w.Write(body)
-	w.WriteHeader(http.StatusCreated)
 
+	return bk
 }
-
 func FetchAuthor(id int) (int, Author) {
-	db := connectDb()
-	defer db.Close()
+	Db := ConnectDb()
+	defer Db.Close()
 
-	row := db.QueryRow("select * from author where author_id=?", id)
-
+	Row := Db.QueryRow("SELECT * FROM author where author_id=?", id)
 	var author Author
-	err := row.Scan(&author.AuthorId, &author.FirstName, &author.LastName, &author.Dob, &author.PenName)
-	if err != nil {
-		log.Print(err)
+	if err := Row.Scan(&author.AuthorId, &author.FirstName, &author.LastName, &author.Dob, &author.PenName); err != nil {
+		fmt.Errorf("failed: %v\n", err)
 	}
 	return author.AuthorId, author
+}
+
+//GetAllBook : returns all books to the client
+func GetAllBooks(w http.ResponseWriter, req *http.Request) {
+
+	books := FetchAllBooks()
+
+	mBook, err := json.Marshal(books)
+	if err != nil {
+		fmt.Errorf("%v\n", err)
+	}
+	bytes.NewBuffer(mBook)
+
+	_, err = w.Write(mBook)
+	if err != nil {
+		fmt.Errorf("%v", err)
+	}
 
 }
 
-func GetAllBook(w http.ResponseWriter, req *http.Request) {
+func GetBookById(w http.ResponseWriter, req *http.Request) {
 
-	db := connectDb()
-	defer db.Close()
+	params := mux.Vars(req)
 
-	rows, err := db.Query("select * from book")
+	if req.Method != "GET" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	strings.ToLower(params["id"])
+	id, _ := strconv.Atoi(params["id"])
+	if id <= 0 {
+		log.Print("invalid id")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	Db := ConnectDb()
+
+	row := Db.QueryRow("select * from book where book_id=?", params["id"])
+	var b Book
+	if err := row.Scan(&b.BookId, &b.AuthorId, &b.Title, &b.Publication, &b.PublishedDate); err != nil {
+		log.Print(err)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	_, author := FetchAuthor(b.AuthorId)
+	b.Author = &author
+
+	_, err := json.Marshal(b)
 	if err != nil {
 		log.Print(err)
-	}
-	defer rows.Close()
-
-	var book []Book
-	for rows.Next() {
-		var b Book
-		err := rows.Scan(&b.BookId, &b.Title, &b.Author, &b.Publication, &b.PublishedDate)
-		if err != nil {
-			log.Print(err)
-		}
-		_, author := FetchAuthor(b.Author.AuthorId)
-		//fmt.Println(author)
-		b.Author = author
-		book = append(book, b)
+		return
 	}
 
-	data, err := json.Marshal(book)
-	if err != nil {
-		log.Print(err)
-	}
-	bytes.NewBuffer(data)
+	w.WriteHeader(http.StatusOK)
 
-	_, err = w.Write(data)
-	if err != nil {
-		log.Print(err)
-	}
 }
 
-//func GetBookById(w http.ResponseWriter, req *http.Request) {
-//
-//	db := connectDb()
-//	defer db.Close()
-//
-//	rows, err := db.Query("select * from book")
-//	if err != nil {
-//		log.Print(err)
-//	}
-//	defer rows.Close()
-//
-//	var book []Book
-//	for rows.Next() {
-//		var b Book
-//		err := rows.Scan(&b.Id, &b.Title, &b.Author, &b.Publication, &b.PublishedDate)
-//		if err != nil {
-//			log.Print(err)
-//		}
-//		_, author := FetchAuthor(b.Author.AuthorId)
-//		//fmt.Println(author)
-//		b.Author = author
-//		book = append(book, b)
-//	}
-//
-//	params := mux.Vars(req)
-//
-//	for _, item := range book {
-//
-//		if item.Id == params["id"] {
-//
-//			data, err := json.Marshal(item)
-//			if err != nil {
-//				log.Print(err)
-//			}
-//
-//			bytes.NewBuffer(data)
-//			_, err = w.Write(data)
-//			if err != nil {
-//				log.Print(err)
-//			}
-//		}
-//	}
-//
-//}
+func checkDob(Dob string) bool {
 
-func CheckPublishedDate(s string) bool {
-	publicationDate := strings.Split(s, "/")
-	if len(publicationDate) < 3 {
-		log.Print("invalid  publication date ")
+	dob := strings.Split(Dob, "/")
+	day, _ := strconv.Atoi(dob[0])
+	month, _ := strconv.Atoi(dob[1])
+	year, _ := strconv.Atoi(dob[2])
+
+	switch {
+	case day <= 0 || day > 31:
 		return false
-	}
-	year, _ := strconv.Atoi(publicationDate[2])
-
-	if year < 1800 || year > 2022 {
-		log.Print("invalid Publication ")
+	case month <= 0 || month > 12:
+		return false
+	case year > 2010:
 		return false
 	}
 	return true
 }
+
+// PostAuthor : post the author to the database
+func PostAuthor(w http.ResponseWriter, req *http.Request) {
+	body := req.Body
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		log.Print(err)
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	var author Author
+	json.Unmarshal(data, &author)
+
+	a, _ := FetchAuthor(author.AuthorId)
+	if a == author.AuthorId || author.FirstName == "" {
+		log.Print("error")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if !checkDob(author.Dob) {
+		log.Print("not valid Dob")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	Db := ConnectDb()
+
+	_, err = Db.Exec("insert into author(author_id,first_name,last_name,dob, pen_name)values(?,?,?,?,?)", author.AuthorId,
+		author.FirstName, author.LastName, author.Dob, author.PenName)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func checkPublication(publication string) bool {
+	strings.ToLower(publication)
+
+	if !(publication == "penguin" || publication == "scholastic" || publication == "arihant") {
+		return false
+	}
+	return true
+}
+
+// checkPublishDate : validate the published date
+func checkPublishDate(PublishDate string) bool {
+	p := strings.Split(PublishDate, "/")
+	day, _ := strconv.Atoi(p[0])
+	month, _ := strconv.Atoi(p[1])
+	year, _ := strconv.Atoi(p[2])
+
+	switch {
+	case day < 0 || day > 31:
+		return false
+	case month < 0 || month > 12:
+		return false
+	case year > 2022 || year < 1880:
+		return false
+	}
+
+	return true
+}
+
+// PostBook : post a book to the database if author exist
 func PostBook(w http.ResponseWriter, req *http.Request) {
 
-	var book Book
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		log.Print(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
 	}
-	err = json.Unmarshal(body, &book)
-	if err != nil {
-		log.Print(err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if book.Publication != "Scholastic" && book.Publication != "Penguin" && book.Publication != "Arihant" {
+	var book Book
+	json.Unmarshal(body, &book)
+
+	if id, _ := strconv.Atoi(book.BookId); id <= 0 {
 		log.Print("invalid entry")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	if !CheckPublishedDate(book.PublishedDate) {
-		log.Print("invalid publication date")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if book.Title == "" || book.Author.FirstName == "" {
-		log.Print("invalid entry")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if book.BookId <= 0 {
-		log.Print("invalid bookid")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	db = connectDb()
-	var id int64
-	row, err := db.Query("SELECT author_id from author WHERE first_name=? AND last_name=? AND dob=? AND pen_name=?", book.Author.FirstName, book.Author.LastName, book.Author.Dob, book.Author.PenName)
-	if row.Next() {
-		row.Scan(&id)
-	}
-	if err != nil {
-		log.Print(err)
+	if book.BookId == "" || book.AuthorId <= 0 || book.Author.FirstName == "" || book.Title == "" {
+		log.Print("not valid entry")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	_, err = db.Exec("INSERT INTO book (book_id,title,author_id,publication,published_date) VALUES (?,?,?,?,?)", book.BookId, book.Title, id, book.Publication, book.PublishedDate)
-	fmt.Println()
+	if !checkDob(book.Author.Dob) || !checkPublishDate(book.PublishedDate) || !checkPublication(book.Publication) {
+		log.Print("not valid entry")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	Db := ConnectDb()
+
+	res := Db.QueryRow("select * from book where book_id=?", book.BookId)
+	var checkExitingId Book
+	_ = res.Scan(&checkExitingId.BookId)
+	if checkExitingId.BookId == book.BookId {
+		log.Print("failed")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	a, _ := FetchAuthor(book.AuthorId)
+	if a != book.AuthorId {
+		log.Print("author does not exist")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	_, err = Db.Exec("insert into book(book_id,author_id,title,publication,publication_date)values (?,?,?,?,?)", book.BookId,
+		book.AuthorId, book.Title, book.Publication, book.PublishedDate)
 	if err != nil {
 		log.Print(err)
-		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	w.Write(body)
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusCreated)
+}
+
+func DeleteBook(w http.ResponseWriter, req *http.Request) {
+
+	params := mux.Vars(req)
+
+	id, err := strconv.Atoi(params["id"])
+	if err != nil {
+		fmt.Errorf("invalid id")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if id <= 0 {
+		fmt.Println("invalid id")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	Db := ConnectDb()
+	_ = Db.QueryRow("delete from book where book_id=?", params["id"])
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func DeleteAuthor(w http.ResponseWriter, req *http.Request) {
+	params := mux.Vars(req)
+
+	id, err := strconv.Atoi(params["id"])
+	if err != nil {
+		fmt.Errorf("invalid id")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if id <= 0 {
+		fmt.Println("invalid id")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	Db := ConnectDb()
+	_ = Db.QueryRow("delete from author where author_id=?", params["id"])
+	w.WriteHeader(http.StatusNoContent)
 }
