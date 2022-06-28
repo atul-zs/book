@@ -367,3 +367,55 @@ func PutAuthor(w http.ResponseWriter, req *http.Request) {
 		w.Write(Data)
 	}
 }
+
+func PutBook(w http.ResponseWriter, req *http.Request) {
+
+	body := req.Body
+	params := mux.Vars(req)
+	ReqBody, err := io.ReadAll(body)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+
+	var book Book
+	json.Unmarshal(ReqBody, &book)
+
+	id, author := FetchAuthor(book.AuthorId)
+	if id != book.AuthorId {
+		log.Print("author does not exist")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	book.Author = &author
+
+	Db := ConnectDb()
+
+	if !checkPublishDate(book.PublishedDate) || !checkPublication(book.Publication) || book.Title == "" || !checkDob(book.Author.Dob) {
+		log.Print("invalid entry")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	var checkBook Book
+	row := Db.QueryRow("select * from book where book_id=?", params["id"])
+
+	if err = row.Scan(&checkBook.BookId, &checkBook.AuthorId, &checkBook.Title, &checkBook.Publication, &checkBook.PublishedDate); err == nil {
+
+		_, err = Db.Exec("update book set bookId=?,authorId=?,title=?,publication=?,publishedDate=? where bookId=?",
+			book.BookId, book.AuthorId, book.Title, book.Publication, book.PublishedDate, params["id"])
+
+		fmt.Fprintf(w, "successfull updated id =%v\n", params["id"])
+		w.WriteHeader(http.StatusCreated)
+		return
+
+	} else {
+		_, err = Db.Exec("insert into book(book_id,author_id,title,publication,published_date)values(?,?,?,?,?) ",
+			book.BookId, book.AuthorId, book.Title, book.Publication, book.PublishedDate)
+
+		fmt.Fprintf(w, "successfull inserted id =%v\n", params["id"])
+		w.WriteHeader(http.StatusCreated)
+		return
+	}
+
+}

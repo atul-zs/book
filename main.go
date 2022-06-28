@@ -19,7 +19,7 @@ func main() {
 	r.HandleFunc("/book/{id}", Author.DeleteBook).Methods("DELETE")
 	r.HandleFunc("/author/{id}", Author.DeleteAuthor).Methods("DELETE")
 	r.HandleFunc("/author/{id}", Author.PutAuthor).Methods("PUT")
-	//r.HandleFunc("/author/{id}", Author.PutBook).Methods("PUT")
+	r.HandleFunc("/author/{id}", Author.PutBook).Methods("PUT")
 	if err := http.ListenAndServe(":8000", r); err != nil {
 		log.Fatal(err)
 	}
