@@ -48,7 +48,6 @@ func ConnectDb() *sql.DB {
 	return db
 }
 
-// FetchingAllBooks : fetches all books from the database
 func FetchAllBooks() []Book {
 	Db := ConnectDb()
 	defer Db.Close()
@@ -88,11 +87,14 @@ func FetchAuthor(id int) (int, Author) {
 	return author.AuthorId, author
 }
 
-//GetAllBook : returns all books to the client
 func GetAllBooks(w http.ResponseWriter, req *http.Request) {
 
 	books := FetchAllBooks()
 
+	if req.Method != "GET" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 	mBook, err := json.Marshal(books)
 	if err != nil {
 		fmt.Errorf("%v\n", err)
@@ -101,7 +103,7 @@ func GetAllBooks(w http.ResponseWriter, req *http.Request) {
 
 	_, err = w.Write(mBook)
 	if err != nil {
-		fmt.Errorf("%v", err)
+		log.Print(err)
 	}
 
 }
@@ -135,12 +137,12 @@ func GetBookById(w http.ResponseWriter, req *http.Request) {
 	_, author := FetchAuthor(b.AuthorId)
 	b.Author = &author
 
-	_, err := json.Marshal(b)
+	data, err := json.Marshal(b)
 	if err != nil {
 		log.Print(err)
 		return
 	}
-
+	w.Write(data)
 	w.WriteHeader(http.StatusOK)
 
 }
@@ -163,7 +165,6 @@ func checkDob(Dob string) bool {
 	return true
 }
 
-// PostAuthor : post the author to the database
 func PostAuthor(w http.ResponseWriter, req *http.Request) {
 	body := req.Body
 
@@ -200,16 +201,6 @@ func PostAuthor(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
-func checkPublication(publication string) bool {
-	strings.ToLower(publication)
-
-	if !(publication == "penguin" || publication == "scholastic" || publication == "arihant") {
-		return false
-	}
-	return true
-}
-
-// checkPublishDate : validate the published date
 func checkPublishDate(PublishDate string) bool {
 	p := strings.Split(PublishDate, "/")
 	day, _ := strconv.Atoi(p[0])
@@ -228,12 +219,21 @@ func checkPublishDate(PublishDate string) bool {
 	return true
 }
 
-// PostBook : post a book to the database if author exist
+func checkPublication(publication string) bool {
+	strings.ToLower(publication)
+
+	if !(publication == "penguin" || publication == "scholastic" || publication == "arihant") {
+		return false
+	}
+	return true
+}
+
 func PostBook(w http.ResponseWriter, req *http.Request) {
 
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		log.Print(err)
+		w.WriteHeader(http.StatusBadRequest)
 	}
 	var book Book
 	json.Unmarshal(body, &book)
@@ -278,10 +278,11 @@ func PostBook(w http.ResponseWriter, req *http.Request) {
 		book.AuthorId, book.Title, book.Publication, book.PublishedDate)
 	if err != nil {
 		log.Print(err)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	w.Write(body)
+	//w.Write(body)
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -325,4 +326,44 @@ func DeleteAuthor(w http.ResponseWriter, req *http.Request) {
 	Db := ConnectDb()
 	_ = Db.QueryRow("delete from author where author_id=?", params["id"])
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func PutAuthor(w http.ResponseWriter, req *http.Request) {
+
+	Data, err := io.ReadAll(req.Body)
+	if err != nil {
+		fmt.Errorf("failed:%v\n", err)
+		return
+	}
+	var author Author
+	json.Unmarshal(Data, &author)
+
+	params := mux.Vars(req)
+	Db := ConnectDb()
+
+	if !checkDob(author.Dob) {
+		fmt.Println("no valid Dob")
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	id, _ := strconv.Atoi(params["id"])
+
+	var checkAuthor Author
+	row := Db.QueryRow("select * from author where author_id=?", id)
+
+	if err = row.Scan(&checkAuthor.AuthorId, &checkAuthor.FirstName, &checkAuthor.LastName, &checkAuthor.Dob, &checkAuthor.PenName); err == nil {
+		fmt.Println(checkAuthor)
+		_ = Db.QueryRow("delete from author where author_id=?", checkAuthor.AuthorId)
+		_, err = Db.Exec("insert into author(author_id,first_name,last_name,dob, pen_name)values(?,?,?,?,?)",
+			author.AuthorId, author.FirstName, author.LastName, author.Dob, author.PenName)
+
+		w.WriteHeader(http.StatusCreated)
+		w.Write(Data)
+	} else {
+		fmt.Println(checkAuthor)
+		_, err = Db.Exec("insert into author(author_id,first_name,last_name,DOB, pen_name)values(?,?,?,?,?)", author.AuthorId, author.FirstName, author.LastName, author.Dob, author.PenName)
+
+		w.WriteHeader(http.StatusCreated)
+		w.Write(Data)
+	}
 }

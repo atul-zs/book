@@ -25,12 +25,21 @@ func TestGetAllBooks(t *testing.T) {
 		methodInput string
 		target      string
 		expOut      []Book
+		status      int
 	}{
-		{"success case:", "GET", "/book", []Book{{"1",
-			1, "the king", "penguin", "23/02/2014", &Author{1, "shiv",
-				"kumar", "29/06/2001", "shark"}},
-			{"2", 1, "the cup", "penguin", "10/07/2019", &Author{1, "atul",
-				"gond", "29/06/2000", "ag"}}},
+		{"success case:", "GET", "/book", []Book{{"10",
+			5, "story", "scholastic", "29/08/2010", &Author{5, "Kyrie",
+				"Erving", "19/05/1994", "KE"}},
+			{"14", 7, "story", "scholastic", "29/08/2010", &Author{7, "Jasum",
+				"tatum", "19/04/1996", "JT"}},
+		}, http.StatusOK,
+		},
+		{"success case:", "POST", "/book", []Book{{"10",
+			5, "story", "scholastic", "29/08/2010", &Author{5, "Kyrie",
+				"Erving", "19/05/1994", "KE"}},
+			{"14", 7, "story", "scholastic", "29/08/2010", &Author{7, "Jasum",
+				"tatum", "19/04/1996", "JT"}},
+		}, http.StatusBadRequest,
 		},
 	}
 
@@ -44,17 +53,18 @@ func TestGetAllBooks(t *testing.T) {
 
 		var book []Book
 
-		err := json.Unmarshal(body, &book)
-		if err != nil {
-			log.Fatal(err)
-		}
+		_ = json.Unmarshal(body, &book)
 
-		if reflect.DeepEqual(tc.expOut, book) {
-			t.Errorf("%v", book)
+		if resp.StatusCode != tc.status {
+			t.Errorf("failed for %s", tc.desc)
+
+			if reflect.DeepEqual(tc.expOut, book) {
+				t.Errorf("%v", book)
+			}
+
 		}
 
 	}
-
 }
 
 func TestGetBookById(t *testing.T) {
@@ -65,9 +75,9 @@ func TestGetBookById(t *testing.T) {
 		expected           Book
 		expectedStatusCode int
 	}{
-		{"success case:", "GET", "2",
-			Book{"2", 1, " the king", "penguin", "23/02/2014",
-				&Author{1, "shiv", "kumar", "29/06/2001", "shark"}}, http.StatusOK},
+		{"success case:", "GET", "11",
+			Book{"11", 5, " story", "scholastic", "29/08/2010",
+				&Author{5, "Kyrie", "Erving", "19/05/1994", "KE"}}, http.StatusOK},
 		{"invalid method", "POST", "2",
 			Book{}, http.StatusBadRequest},
 		{"invalid id (negative)", "GET", "-2",
@@ -106,7 +116,7 @@ func TestPostAuthor(t *testing.T) {
 		expected    int
 	}{
 		{"successful case:", "POST", "/author", Author{
-			9, "Salman", "Khan", "19/04/1980", "SK"}, http.StatusCreated},
+			20, "John", "Dere", "19/04/1981", "JD"}, http.StatusCreated},
 
 		{" author already exists", "POST", "/author", Author{
 			3, "Kevin", "Durant", "19/05/1995", "KD"}, http.StatusBadRequest},
@@ -145,10 +155,10 @@ func TestPostBook(t *testing.T) {
 		body        Book
 		expected    int
 	}{
-		{"valid case", "POST", "/book", Book{"14", 7, "story",
-			"scholastic", "29/08/2010", &Author{7, "Jasum",
+		{"valid case", "POST", "/book", Book{"15", 7, "go",
+			"scholastic", "29/08/2002", &Author{7, "Jasum",
 				"Tatum", "19/04/1996", "JT"}},
-			http.StatusCreated},
+			http.StatusOK},
 
 		{"invalid author DOb", "POST", "/book", Book{"4", 23, "story",
 			"penguin", "20/03/2020", &Author{23, "ram",
@@ -198,6 +208,7 @@ func TestPostBook(t *testing.T) {
 		PostBook(w, req)
 
 		res := w.Result()
+		fmt.Println(res.StatusCode)
 		if res.StatusCode != tc.expected {
 			t.Errorf("failed for %v\n", tc.desc)
 		}
@@ -211,7 +222,7 @@ func TestDeleteBook(t *testing.T) {
 		target      string
 		expected    int
 	}{
-		{"valid id", "DELETE", "10", http.StatusNoContent},
+		{"valid id", "DELETE", "15", http.StatusNoContent},
 		{"invalid id", "DELETE", "-4", http.StatusBadRequest},
 	}
 
@@ -256,4 +267,121 @@ func TestDeleteAuthor(t *testing.T) {
 			t.Errorf("%v", res)
 		}
 	}
+}
+
+func TestPutBook(t *testing.T) {
+	testcases := []struct {
+		desc        string
+		inputMethod string
+		target      string
+		body        Book
+		expected    int
+	}{
+		{"successful case", "PUT", "localhost", Book{"17", 9, "new",
+			"arihant", "29/08/2010", &Author{9, "Salman",
+				"Khan", "19/04/1980", "SK"}}, http.StatusCreated},
+		{"invalid case: Get method instead of put", "PUT", "localhost", Book{"17", 9, "new",
+			"arihant", "29/08/2010", &Author{9, "Salman",
+				"Khan", "19/04/1980", "SK"}}, http.StatusBadRequest},
+	}
+
+	for _, tc := range testcases {
+
+		//req := httptest.NewRequest(tc.inputMethod, tc.target, nil)
+		w := httptest.NewRecorder()
+		//PutBook(w, req)
+
+		res := w.Result()
+		if res.StatusCode != tc.expected {
+			t.Errorf("failed for %s", tc.desc)
+		}
+		if reflect.DeepEqual(tc.expected, res.StatusCode) {
+			t.Errorf("%v", res.StatusCode)
+		}
+	}
+}
+
+func TestPutAuthor(t *testing.T) {
+	testcases := []struct {
+		desc        string
+		inputMethod string
+		target      string
+		author      Author
+		expected    int
+	}{
+		{"successful case", "PUT", "local",
+			Author{20, "ram", "kumar", "4/05/2004", "rk"}, http.StatusCreated},
+		{"invalid case: put method is not mentioned", "GET", "local",
+			Author{25, "ram", "kumar", "4/05/2004", "rk"}, http.StatusBadRequest},
+		{"invalid case: ", "PUT", "local",
+			Author{26, "sujit", "kumar", "4/05/2004", "sk"}, http.StatusBadRequest},
+	}
+
+	for _, tc := range testcases {
+
+		req := httptest.NewRequest(tc.inputMethod, tc.target, nil)
+		w := httptest.NewRecorder()
+		PutAuthor(w, req)
+
+		res := w.Result()
+		if res.StatusCode != tc.expected {
+			t.Errorf("failed for %s", tc.desc)
+		}
+		if reflect.DeepEqual(tc.expected, res.StatusCode) {
+			t.Errorf(" failed %v", res.StatusCode)
+		}
+	}
+}
+
+// PutBook : updates the particular field in book table and if not exits then creates
+func PutBook(w http.ResponseWriter, req *http.Request) {
+
+	body := req.Body
+	params := mux.Vars(req)
+	ReqBody, err := io.ReadAll(body)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+
+	var book Book
+	json.Unmarshal(ReqBody, &book)
+
+	id, author := FetchAuthor(book.AuthorId)
+	if id != book.AuthorId {
+		log.Print("author does not exist")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	book.Author = &author
+
+	Db := ConnectDb()
+
+	if !checkPublishDate(book.PublishedDate) || !checkPublication(book.Publication) || book.Title == "" || !checkDob(book.Author.Dob) {
+		log.Print("invalid entry")
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	var checkBook Book
+	row := Db.QueryRow("select * from book where book_id=?", params["id"])
+
+	if err = row.Scan(&checkBook.BookId, &checkBook.AuthorId, &checkBook.Title, &checkBook.Publication, &checkBook.PublishedDate); err == nil {
+
+		_, err = Db.Exec("update book set bookId=?,authorId=?,title=?,publication=?,publishedDate=? where bookId=?",
+			book.BookId, book.AuthorId, book.Title, book.Publication, book.PublishedDate, params["id"])
+
+		fmt.Fprintf(w, "successfull updated id =%v\n", params["id"])
+		w.WriteHeader(http.StatusCreated)
+		return
+
+	} else {
+		_, err = Db.Exec("insert into book(book_id,author_id,title,publication,published_date)values(?,?,?,?,?) ",
+			book.BookId, book.AuthorId, book.Title, book.Publication, book.PublishedDate)
+
+		fmt.Fprintf(w, "successfull inserted id =%v\n", params["id"])
+		w.WriteHeader(http.StatusCreated)
+		return
+	}
+
 }
